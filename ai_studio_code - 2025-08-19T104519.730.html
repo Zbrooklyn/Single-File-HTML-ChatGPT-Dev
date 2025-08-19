@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>AI Conversation Hub</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
+    <!-- Libs from Original Project -->
+    <script src="https://cdn.tailwindcss.com?plugins=typography,forms"></script>
+    <script>
+      // Minimal Tailwind config for markdown rendering compatibility
+      tailwind.config = { darkMode: 'class', theme: { extend: {} } };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script type="module">import * as tiktoken from "https://cdn.jsdelivr.net/npm/@dqbd/tiktoken@1.0.14/lite/init.js"; window.tiktoken = tiktoken;</script>
+
+    <style>
+        /* New UI Design Styles */
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap');
+
+        :root {
+            --ai-bg: #121212; --ai-bg-surface: #202020; --ai-bg-surface-soft: #282828; --ai-bg-pills: #2A2A2A; --ai-accent: #53BDEB;
+            --ai-accent-gradient: linear-gradient(45deg, #53BDEB, #20A3E2); --ai-red-destructive: #E53935; --ai-text-primary: #FFFFFF;
+            --ai-text-secondary: #AAAAAA; --hover-overlay: rgba(255, 255, 255, 0.1); --transition-snap: cubic-bezier(0.25, 0.8, 0.25, 1);
+            --shadow-1: 0 1px 3px rgba(0,0,0,0.3); --focus-ring: 0 0 0 2px var(--ai-accent);
+        }
+        body.light-mode {
+            --ai-bg: #F0F2F5; --ai-bg-surface: #FFFFFF; --ai-bg-surface-soft: #F7F7F7; --ai-bg-pills: #E9EBEF;
+            --ai-text-primary: #111111; --ai-text-secondary: #65676B; --hover-overlay: rgba(0, 0, 0, 0.05); --shadow-1: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        html { height: 100%; }
+        body { margin: 0; font-family: 'Roboto', sans-serif; background-color: var(--ai-bg); color: var(--ai-text-primary); overscroll-behavior-x: none; -webkit-font-smoothing: antialiased; height: 100%; }
+        .ai-app { width: 100%; height: 100%; display: flex; flex-direction: column; position: relative; /* CORRECTED: overflow: hidden REMOVED */ }
+        .material-icons { font-size: 24px; vertical-align: middle; user-select: none; }
+        button, input, textarea, select { font-family: 'Roboto', sans-serif; }
+        *:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+        /* Mobile First Layout */
+        .ai-app-main-view { width: 100%; flex-grow: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+        .main-header { padding: 12px 0 0 0; flex-shrink: 0; background-color: var(--ai-bg); z-index: 10; border-bottom: 1px solid var(--ai-bg-surface); box-shadow: var(--shadow-1); position: relative; display: flex; flex-direction: column; }
+        .header-content { display: flex; flex-direction: column; padding: 0 12px; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .header-top h1 { font-size: 24px; font-weight: 700; margin: 0; }
+        .header-actions { display: flex; align-items: center; gap: 4px; }
+        .header-actions button { background: none; border: none; color: var(--ai-text-secondary); padding: 8px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .search-container { display: flex; align-items: center; gap: 12px; background-color: var(--ai-bg-surface); padding: 8px 12px; border-radius: 24px; }
+        #search-input { background: none; border: none; color: var(--ai-text-primary); font-size: 16px; width: 100%; }
+        .filter-pills { display: flex; gap: 8px; padding: 0 12px 12px 12px; margin-top: 12px; overflow-x: auto; align-items: center; scrollbar-width: none; -ms-overflow-style: none; scroll-behavior: smooth; }
+        .filter-pills::-webkit-scrollbar { display: none; }
+        .pill { background-color: var(--ai-bg-pills); color: var(--ai-text-primary); padding: 6px 12px; border-radius: 24px; font-size: 14px; cursor: pointer; user-select: none; flex-shrink: 0; border: none; }
+        .pill.active { background: var(--ai-accent-gradient); color: white; font-weight: 500; }
+        .bulk-edit-header { position: absolute; top: 0; left: 0; right: 0; background-color: var(--ai-bg-surface); padding: 12px; display: flex; justify-content: space-between; align-items: center; transform: translateY(-100%); transition: transform 0.3s var(--transition-snap); z-index: 11; }
+        body.select-mode .bulk-edit-header { transform: translateY(0); }
+        main { flex-grow: 1; position: relative; overflow: hidden; }
+        .views-container { display: flex; height: 100%; width: 500%; transition: transform 0.3s var(--transition-snap); }
+        .view { width: 20%; height: 100%; overflow-y: auto; scrollbar-width: thin; -ms-overflow-style: auto;}
+        .empty-state { text-align: center; color: var(--ai-text-secondary); padding: 60px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; box-sizing: border-box; }
+        .empty-state .material-icons { font-size: 48px; margin-bottom: 16px; }
+        .empty-state h3 { margin: 0 0 8px; font-size: 16px; color: var(--ai-text-primary); }
+        .list-item { display: flex; align-items: center; padding: 8px 12px; min-height: 60px; box-sizing: border-box; cursor: pointer; position: relative; }
+        .list-item:hover { background-color: var(--hover-overlay); }
+        .list-item-content { flex-grow: 1; min-width: 0; }
+        .list-item-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
+        .list-item-preview, .list-item-sub { font-size: 14px; color: var(--ai-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .thread-list { list-style: none; margin: 0; padding: 0; }
+        .thread-item.selected { background-color: rgba(83, 189, 235, 0.3); }
+        .thread-checkbox { margin-right: 12px; width: 20px; height: 20px; border: 2px solid var(--ai-text-secondary); border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .thread-item.selected .thread-checkbox { background-color: var(--ai-accent); border-color: var(--ai-accent); }
+        .thread-item.selected .thread-checkbox .material-icons { color: white; opacity: 1; transform: scale(1); }
+        .thread-checkbox .material-icons { color: white; font-size: 20px; opacity: 0; transform: scale(0.5); transition: all 0.2s; }
+        .topic-icon { width: 40px; height: 40px; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background-color: var(--ai-bg-surface-soft); }
+        .thread-meta-container { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: 8px; }
+        .thread-meta { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+        .timestamp { font-size: 12px; color: var(--ai-text-secondary); flex-shrink: 0; }
+        .timestamp.text-accent { color: var(--ai-accent); font-weight: 500; }
+        .thread-meta-badge { display: flex; height: 20px; align-items: center; gap: 4px; }
+        .meta-icon { font-size: 16px; color: var(--ai-accent); }
+        .unread-dot { width: 8px; height: 8px; background-color: var(--ai-accent); border-radius: 50%; }
+        #conversation-view { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: var(--ai-bg); z-index: 1001; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.4s var(--transition-snap); }
+        #conversation-view.visible { transform: translateX(0); }
+        .conv-header { padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--ai-bg-surface); flex-shrink: 0; box-shadow: var(--shadow-1); position: relative; }
+        .conv-header-main { flex-grow: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+        #model-selector-btn { display: flex; align-items: center; gap: 4px; background-color: var(--ai-bg-pills); padding: 4px 8px; border-radius: 8px; cursor: pointer; flex-shrink: 0; }
+        #model-selector-btn .material-icons { font-size: 16px; }
+        #live-cost { font-size: 12px; color: var(--ai-text-secondary); flex-shrink: 0; }
+        .conv-header-title-wrapper { min-width: 0; }
+        .conv-header h2 { font-size: 18px; font-weight: 500; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .conv-messages { flex-grow: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column-reverse; }
+        .message-wrapper { display: flex; flex-direction: column; max-width: 85%; margin-bottom: 8px; animation: message-pop-in 0.3s var(--transition-snap); border-radius: 8px; transition: background-color 0.2s; position: relative; }
+        @keyframes message-pop-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .msg { padding: 10px 14px; border-radius: 18px; line-height: 1.5; word-wrap: break-word; }
+        .msg-ai { background-color: var(--ai-bg-surface-soft); border-bottom-left-radius: 4px; }
+        .msg-user { background: var(--ai-accent-gradient); color: white; border-bottom-right-radius: 4px; }
+        .message-wrapper.user { align-self: flex-end; }
+        .message-wrapper.system { align-self: center; background-color: var(--ai-bg-surface); font-size: 12px; color: var(--ai-text-secondary); padding: 4px 10px; border-radius: 8px; max-width: 100%; text-align: center; }
+        .image-attachment { max-width: 250px; border-radius: 12px; margin-top: 8px; cursor: pointer; }
+        .conv-footer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--ai-bg-surface); }
+        #image-previews { display: flex; gap: 8px; padding: 0 12px 8px; overflow-x: auto; }
+        #image-previews .preview-container { position: relative; flex-shrink: 0; }
+        #image-previews img { height: 50px; width: 50px; object-fit: cover; border-radius: 8px; }
+        #image-previews button { position: absolute; top: -5px; right: -5px; background-color: var(--ai-red-destructive); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; line-height: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .conv-input-wrapper { display: flex; flex-direction: column; width: 100%; }
+        .conv-input { flex-grow: 1; background-color: var(--ai-bg-surface); border: none; color: var(--ai-text-primary); padding: 12px; border-radius: 20px; font-size: 16px; resize: none; max-height: 120px; }
+        .conv-send-btn { background: var(--ai-accent-gradient); border: none; width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; display: none; align-items: center; justify-content: center; cursor: pointer; color: white; }
+        .conv-send-btn:disabled { background: var(--ai-bg-pills); cursor: not-allowed; }
+        .fab { position: absolute; bottom: 12px; right: 12px; width: 56px; height: 56px; background: var(--ai-accent-gradient); border: none; border-radius: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); cursor: pointer; z-index: 20; transition: transform 0.3s, opacity 0.3s; }
+        .fab.hidden { transform: scale(0.5); opacity: 0; }
+        .app-footer { background-color: var(--ai-bg); border-top: 1px solid var(--ai-bg-surface); display: flex; justify-content: space-around; padding: 6px 0 max(8px, env(safe-area-inset-bottom)); z-index: 100; flex-shrink: 0; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; color: var(--ai-text-secondary); font-size: 12px; flex: 1; text-align: center; border: none; background: none; padding: 4px; }
+        .nav-item.active { color: var(--ai-text-primary); }
+        .view-content-padding { padding: 12px; }
+        .view-title { font-size: 24px; font-weight: 700; margin: 0 0 16px; }
+        .section-header { font-size: 14px; color: var(--ai-text-secondary); font-weight: 500; margin: 24px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .settings-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; background-color: var(--ai-bg-surface); padding: 14px; cursor: pointer; }
+        .settings-item-main { display: flex; align-items: center; gap: 16px; }
+        .settings-item-group .settings-item:first-of-type { border-radius: 8px 8px 0 0; }
+        .settings-item-group .settings-item:last-of-type { border-radius: 0 0 8px 8px; }
+        .settings-item-group .settings-item:not(:last-of-type) { border-bottom: 1px solid var(--ai-bg); }
+        .toggle-switch { width: 40px; height: 24px; background-color: var(--ai-bg-pills); border-radius: 12px; position: relative; cursor: pointer; }
+        .toggle-switch::before { content: ''; position: absolute; width: 20px; height: 20px; background-color: white; border-radius: 50%; top: 2px; left: 2px; transition: transform 0.2s var(--transition-snap); }
+        .toggle-switch.active { background: var(--ai-accent-gradient); }
+        .toggle-switch.active::before { transform: translateX(16px); }
+        .project-item, .note-item, .task-item { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--ai-bg-surface); }
+        .project-item:last-child, .note-item:last-child, .task-item:last-child { border-bottom: none; }
+        .project-item { cursor: pointer; } .project-item .list-item-title { font-size: 18px; }
+        .item-content { flex-grow: 1; }
+        .item-description { font-size: 14px; color: var(--ai-text-secondary); margin-top: 4px; line-height: 1.5; white-space: pre-wrap; }
+        .item-source { font-size: 12px; color: var(--ai-text-secondary); margin-top: 8px; cursor: pointer; display: inline-block; }
+        .label-manager-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--ai-bg-surface-soft); }
+        .label-manager-main { display: flex; align-items: center; gap: 12px; flex-grow: 1; }
+        .label-manager-actions { flex-shrink: 0; }
+        .project-toggle-label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--ai-text-secondary); }
+
+        /* Desktop Optimization */
+        @media (min-width: 1024px) {
+            .ai-app { flex-direction: row; }
+            .ai-app-main-view { display: none; } /* Hide mobile-only view */
+            .desktop-layout { display: flex; width: 100%; height: 100%; }
+            #desktop-sidebar { width: 360px; flex-shrink: 0; border-right: 1px solid var(--ai-bg-surface); display: flex; flex-direction: column; }
+            #desktop-conversation-view { flex-grow: 1; display: flex; flex-direction: column; }
+            .app-footer, .fab { display: none; }
+            .conv-header .conv-back-btn { display: none; }
+            #conversation-view { position: static; transform: none !important; width: 100%; height: 100%; }
+            .thread-item.desktop-selected { background: var(--ai-accent-gradient); }
+            .thread-item.desktop-selected .list-item-title, .thread-item.desktop-selected .list-item-preview, .thread-item.desktop-selected .timestamp { color: white; }
+        }
+        
+        .mic-recording .material-icons { color: #ef4444; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.7; } }
+        .loader { border: 2px solid var(--ai-text-secondary); border-top: 2px solid var(--ai-accent); border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .prose { line-height: 1.6; } .prose p { margin-bottom: 1em; } .prose table { width: 100%; border-collapse: collapse; margin-top: 1em; margin-bottom: 1em; } .prose th, .prose td { border: 1px solid var(--ai-bg-pills); padding: 0.5rem 0.75rem; } .prose th { background-color: var(--ai-bg-surface-soft); font-weight: 600; } .prose code { background-color: var(--ai-bg-surface); padding: 0.2em 0.4em; margin: 0; font-size: 85%; border-radius: 3px; font-family: 'Roboto Mono', monospace; } .prose pre { background-color: var(--ai-bg); border: 1px solid var(--ai-bg-pills); border-radius: 8px; padding: 12px; overflow-x: auto; font-family: 'Roboto Mono', monospace; font-size: 14px; color: var(--ai-text-primary); margin: 1em 0; } .prose pre code { background: none; padding: 0; font-size: inherit; color: inherit; } .prose ul, .prose ol { padding-left: 1.5em; } .prose blockquote { border-left: 4px solid var(--ai-bg-pills); padding-left: 1em; margin-left: 0; font-style: italic; color: var(--ai-text-secondary); }
+        .context-menu { position: fixed; z-index: 3000; background-color: var(--ai-bg-surface-soft); border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); padding: 8px; display: none; min-width: 240px; } .context-menu-item { display: flex; align-items: center; gap: 16px; padding: 14px; cursor: pointer; border-radius: 8px; font-size: 15px; background: none; border: none; width: 100%; color: var(--ai-text-primary); text-align: left; } .context-menu-item.destructive { color: var(--ai-red-destructive); }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 2900; opacity: 0; pointer-events: none; transition: opacity 0.2s ease-in-out; } .modal-overlay.visible { opacity: 1; pointer-events: auto; } .modal-content { background-color: var(--ai-bg-surface); padding: 24px; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); transform: scale(0.95); transition: transform 0.2s ease-in-out; max-height: 85vh; display: flex; flex-direction: column; } .modal-body { overflow-y: auto; flex-grow: 1; } .modal-overlay.visible .modal-content { transform: scale(1); } .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; flex-shrink: 0; } .modal-input, .modal-select { width: 100%; background-color: var(--ai-bg); border: 1px solid var(--ai-bg-pills); border-radius: 8px; padding: 10px; color: var(--ai-text-primary); font-size: 16px; margin-bottom: 12px; box-sizing: border-box; } body.light-mode .modal-input, body.light-mode .modal-select { background-color: var(--ai-bg-surface-soft); } textarea.modal-input { resize: vertical; } .modal-btn { padding: 8px 16px; border-radius: 20px; border: none; font-weight: 500; cursor: pointer; } .modal-btn-cancel { background-color: var(--ai-bg-pills); color: var(--ai-text-primary); } .modal-btn-confirm { background: var(--ai-accent-gradient); color: white; } .modal-btn-destructive { background-color: var(--ai-red-destructive); color: white; margin-right: auto; }
+        .label-modal-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; max-height: 150px; overflow-y: auto;} .label-modal-pill { padding: 4px 10px; border-radius: 16px; font-size: 14px; cursor: pointer; border: 1px solid var(--ai-bg-pills); } .label-modal-pill.selected { border-color: transparent; background-color: var(--ai-accent); color: white; } .label-modal-new { display: flex; gap: 8px; } .label-modal-new .modal-input { margin-bottom: 0; flex-grow: 1; }
+        
+        #actionsPopup { opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0.3s; position: fixed; inset: 0px; z-index: 2000; display: flex; align-items: flex-end; }
+        #actionsPopup.open { opacity: 1; visibility: visible; }
+        #actionsBackdrop { position: absolute; inset: 0; background-color: rgba(0,0,0,0.6); }
+        #actionsPanel { transform: translateY(100%); transition: transform 0.3s ease-out; position: relative; width: 100%; background-color: var(--ai-bg-surface); border-top-left-radius: 1rem; border-top-right-radius: 1rem; padding: 1rem; color: var(--ai-text-primary); }
+        #actionsPopup.open #actionsPanel { transform: translateY(0); }
+        #notificationBanner { display: none; position: fixed; top: 1rem; left: 1rem; right: 1rem; z-index: 3000; padding: 0.75rem; color: white; font-size: 0.875rem; text-align: center; border-radius: 0.5rem; }
+    </style>
+</head>
+<body>
+    <div id="app-root"></div>
+    <div id="modal-container"></div>
+    <div id="context-menu" class="context-menu" role="menu"></div>
+
+    <input type="file" id="attachFileInput" class="hidden" accept="image/*,.pdf,.txt,.md,.csv" multiple>
+    <input type="file" id="cameraFileInput" class="hidden" accept="image/*" capture>
+    <input type="file" id="importFileInput" class="hidden" accept=".json">
+
+    <script type="module">
+        const { jsPDF } = window.jspdf;
+        const { html2canvas } = window;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const App = (() => {
+                const APP_STORAGE_KEY = 'aiHubState_v7_definitive';
+                const dom = {};
+                let state = {};
+                let tokenizer, currentAudioPlayer, attachedImages = [], recognition, isRecognizing = false, availableApiModelIds = new Set(), logStore = [];
+
+                const TARIFF = { 'gpt-4o': [0.005, 0.015], 'gpt-4o-mini': [0.00015, 0.0006], 'gpt-4-turbo': [0.01, 0.03], 'gpt-4': [0.03, 0.06], 'gpt-3.5-turbo': [0.0005, 0.0015] };
+                const DEFAULT_RATE = [0.01, 0.03];
+                const MODEL_DETAILS = { 'gpt-4o': { name: 'GPT-4 Omni', group: 'Chat', tier: 'Tier 1+', context: '128k', capabilities: ['Vision', 'Web Search', 'Data Analysis'] }, 'gpt-4o-mini': { name: 'GPT-4o Mini', group: 'Chat', tier: 'Tier 1+', context: '128k', capabilities: ['Vision', 'Web Search', 'Fast'] }, 'gpt-4-turbo': { name: 'GPT-4 Turbo', group: 'Chat', tier: 'Tier 1+', context: '128k', capabilities: ['Vision', 'Web Search'] }, 'gpt-3.5-turbo': { name: 'GPT-3.5 Turbo', group: 'Chat', tier: 'Free Tier', context: '16k', capabilities: ['Text-only', 'Fast'] }, 'gpt-4': { name: 'GPT-4 (Legacy)', group: 'Chat', tier: 'Tier 1+', context: '8k', capabilities: ['Text-only', 'Powerful'] } };
+                const L = { en: { threads: "Threads", projects: "Projects", settings: "Settings", apiKey: "API Key", manageModels: "Manage Models" }, es: { threads: "Hilos", projects: "Proyectos", settings: "Ajustes", apiKey: "Clave de API", manageModels: "Gestionar Modelos" }};
+                const getBaseAlias = id => id.replace(/-(\d{4}(?:-\d{2}){0,2}|preview|vision-preview|16k|32k|128k)$/i, '');
+                const costOf = (m, inT, outT) => { const rate = TARIFF[getBaseAlias(m)] || DEFAULT_RATE; return (inT / 1000 * rate[0]) + (outT / 1000 * rate[1]); };
+                async function calculateTokens(text) { try { if (tokenizer) return tokenizer.encode(text).length; } catch(e){ /* Fallback */ } return Math.ceil((text || '').length / 4); }
+                const md = txt => DOMPurify.sanitize(marked.parse(txt || '', { gfm: true, breaks: true, smartLists: true }));
+
+                const defaultState = {
+                    apiKey: '',
+                    threads: [{ id: 'welcome', title: 'Welcome to AI Hub!', icon: 'smart_toy', cost: 0, tags: [], messages: [{ id: 'msg-welcome-1', role: 'assistant', content: 'Hello! This is your new AI Conversation Hub. To get started, go to **Settings** (on mobile) or **Manage Labels** (on desktop) and enter your OpenAI API key.', timestamp: new Date().toISOString() }], timestamp: new Date().toISOString(), isPinned: false, isArchived: false, isUnread: false }],
+                    tags: [{id: 't-1', name: 'Important', isProject: false}, {id: 't-2', name: 'Code Snippet', isProject: false}, {id: 't-3', name: 'Project Zeta', isProject: true}],
+                    prompts: [],
+                    tasks: [],
+                    settings: { lang: 'en', theme: 'dark', model: 'gpt-4o-mini', temperature: 1.0, autoRead: false, ttsProvider: 'browser', openaiVoice: 'alloy', enabledModels: Object.keys(MODEL_DETAILS) },
+                    ui: { currentViewIndex: 0, activeThreadId: 'welcome', activeProjectId: null, searchQuery: '', isSelectMode: false, selectedThreadIds: [], activeFilterId: 'all', mainViewMode: 'threads' }
+                };
+                
+                const saveState = () => { try { localStorage.setItem(APP_STORAGE_KEY, JSON.stringify(state)); } catch(e) { console.error("Error saving state:", e); }};
+                const loadState = () => {
+                    const saved = localStorage.getItem(APP_STORAGE_KEY);
+                    const mergedState = JSON.parse(JSON.stringify(defaultState));
+                    if (saved) {
+                        try { 
+                            const parsedSaved = JSON.parse(saved);
+                            Object.keys(mergedState).forEach(key => {
+                                if (parsedSaved[key] !== undefined) {
+                                    if (typeof mergedState[key] === 'object' && !Array.isArray(mergedState[key]) && mergedState[key] !== null) {
+                                        mergedState[key] = { ...mergedState[key], ...parsedSaved[key] };
+                                    } else { mergedState[key] = parsedSaved[key]; }
+                                }
+                            });
+                        } 
+                        catch (e) { console.error("Failed to parse state, loading defaults.", e); }
+                    }
+                    Object.assign(state, mergedState);
+                    if (!state.threads.find(t => t.id === state.ui.activeThreadId)) { state.ui.activeThreadId = state.threads.find(t => !t.isArchived)?.id || null; }
+                };
+
+                const setupLogging = () => { const o = { log: console.log, warn: console.warn, error: console.error }; const l = (t, a) => { logStore.push({ type:t, message: a.map(g => typeof g === 'object' ? JSON.stringify(g, null, 2) : g).join(' '), ts: new Date()}); if (logStore.length > 200) logStore.shift(); }; console.log = (...a) => { l('log', a); o.log.apply(console, a); }; console.warn = (...a) => { l('warn', a); o.warn.apply(console, a); }; console.error = (...a) => { l('error', a); o.error.apply(console, a); };};
+                const loc = (key) => L[state.settings.lang]?.[key] || L['en'][key];
+
+                const render = {
+                    run() { this.theme(); this.view(); this.filters(); this.threads(); this.settings(); this.projects(); this.conversation(); this.bulkHeader(); this.localize(); },
+                    localize() { document.querySelectorAll('[data-loc]').forEach(el => { if(el.dataset.loc) el.textContent = loc(el.dataset.loc); }); },
+                    theme() { dom.body.classList.toggle('light-mode', state.settings.theme === 'light'); },
+                    view() {
+                        const isDesktop = window.innerWidth >= 1024;
+                        dom.body.classList.toggle('desktop-view', isDesktop);
+                        if (isDesktop) {
+                            dom.desktopLayout.style.display = 'flex';
+                            dom.mobileApp.style.display = 'none';
+                            this.threads(dom.desktopThreadList);
+                            this.filters(dom.desktopFilterPills);
+                            this.conversation(dom.desktopConversationView);
+                        } else {
+                            dom.desktopLayout.style.display = 'none';
+                            dom.mobileApp.style.display = 'flex';
+                            const { currentViewIndex, activeThreadId } = state.ui;
+                            dom.viewsContainer.style.transform = `translateX(-${currentViewIndex * 20}%)`;
+                            dom.navItems.forEach((nav, i) => nav.classList.toggle('active', i === currentViewIndex));
+                            dom.mainHeader.style.display = (currentViewIndex === 0) ? 'flex' : 'none';
+                            dom.conversationView.classList.toggle('visible', activeThreadId !== null);
+                            if(dom.fab) dom.fab.classList.toggle('hidden', activeThreadId !== null);
+                        }
+                    },
+                    filters(container = dom.filterPills) { if(!container) return; const systemFilters = [{ id: 'all', name: 'All' }, { id: 'unread', name: 'Unread' }, { id: 'pinned', name: 'Pinned' }, { id: 'archived', name: 'Archived' }]; const sysHtml = systemFilters.map(f => `<button class="pill ${state.ui.activeFilterId === f.id ? 'active' : ''}" data-filter-id="${f.id}">${f.name}</button>`).join(''); const tagHtml = state.tags.map(t => `<button class="pill ${state.ui.activeFilterId === t.id ? 'active' : ''}" data-filter-id="${t.id}">${t.name}</button>`).join(''); container.innerHTML = sysHtml + tagHtml; },
+                    threads(container = dom.threadList) {
+                        if(!container) return;
+                        if(dom.desktopLayout.style.display === 'flex') {
+                            const header = container.previousElementSibling;
+                            const title = header.querySelector('h1');
+                            title.innerHTML = `<span data-loc="threads">Threads</span> <button id="view-mode-toggle" class="align-middle text-sm p-1 rounded-md hover:bg-[var(--hover-overlay)]"><span class="material-icons text-base align-middle">${state.ui.mainViewMode === 'threads' ? 'forum' : 'label'}</span></button>`;
+                        }
+
+                        if (state.ui.mainViewMode === 'labeledMessages') {
+                           let allLabeledMessages = [];
+                            state.threads.forEach(thread => { if (thread.isArchived) return; (thread.messages||[]).forEach(message => { if ((message.tags||[]).length > 0) { allLabeledMessages.push({ ...message, thread, threadId: thread.id, threadTitle: thread.title || 'Untitled' }); } }); });
+                            if (allLabeledMessages.length === 0) { container.innerHTML = templates.emptyState('label', 'No Labeled Messages', 'Use the context menu on a message to add a label.'); } 
+                            else { container.innerHTML = allLabeledMessages.map(templates.labeledMessageItem).join(''); }
+                            return;
+                        }
+
+                        const q = state.ui.searchQuery.toLowerCase();
+                        const filterFns = { 'all': t => !t.isArchived, 'unread': t => t.isUnread && !t.isArchived, 'pinned': t => t.isPinned && !t.isArchived, 'archived': t => t.isArchived };
+                        const isTagFilter = state.tags.some(t => t.id === state.ui.activeFilterId);
+                        const currentFilter = isTagFilter ? (t => (t.tags || []).includes(state.ui.activeFilterId)) : (filterFns[state.ui.activeFilterId] || filterFns['all']);
+                        let filteredThreads = state.threads.filter(currentFilter);
+                        if(q) filteredThreads = filteredThreads.filter(t => t.title.toLowerCase().includes(q) || (helpers.getThreadPreview(t) || '').toLowerCase().includes(q));
+                        filteredThreads.sort((a,b) => (b.isPinned ? 1 : -1) - (a.isPinned ? 1 : -1) || new Date(b.timestamp) - new Date(a.timestamp));
+                        
+                        if (filteredThreads.length === 0) { container.innerHTML = templates.emptyState('chat', 'No Conversations', 'Try a different filter or tap + to start a new one.'); } 
+                        else { container.innerHTML = filteredThreads.map(t => templates.threadItem(t)).join(''); }
+                    },
+                    projects() { if(!dom.projectsView) return; if (state.ui.activeProjectId) { dom.projectsView.innerHTML = templates.projectWorkspace(); } else { const projects = state.tags.filter(t => t.isProject); if (projects.length === 0) { dom.projectsView.innerHTML = `<div class="view-content-padding">${templates.emptyState('folder_special', 'No Projects', 'You can promote any label to a project from the Label Manager in Settings.')}</div>`; } else { dom.projectsView.innerHTML = `<div class="view-content-padding"><h1 class="view-title" data-loc="projects">Projects</h1>${projects.map(templates.projectListItem).join('')}</div>`; } } },
+                    settings() { if(dom.settingsView) dom.settingsView.innerHTML = templates.settingsView(); },
+                    conversation(container = dom.conversationView) {
+                        if(!container) return;
+                        const thread = state.threads.find(t => t.id === state.ui.activeThreadId);
+                        if (!thread) { container.innerHTML = templates.emptyState('chat', 'Select a conversation', 'Choose a conversation from the list to see it here.'); return; }
+                        container.innerHTML = templates.conversationShell(thread);
+                        const msgContainer = container.querySelector('.conv-messages');
+                        if (msgContainer) msgContainer.innerHTML = thread.messages.map(templates.messageItem).join('');
+                    },
+                    bulkHeader() { if(dom.body) dom.body.classList.toggle('select-mode', state.ui.isSelectMode); if(dom.bulkTitle) dom.bulkTitle.textContent = `${state.ui.selectedThreadIds.length} selected`; },
+                    imagePreviews(container = dom.imagePreviews) { if(container) container.innerHTML = attachedImages.map((img, index) => `<div class="preview-container"><img src="${img.data}"><button data-index="${index}">×</button></div>`).join('');},
+                    contextMenu(x, y, options) { dom.contextMenu.innerHTML = options.map(templates.contextMenuItem).join(''); dom.contextMenu.style.display = 'block'; const rect = dom.contextMenu.getBoundingClientRect(); const bodyRect = dom.body.getBoundingClientRect(); dom.contextMenu.style.left = `${Math.min(x, bodyRect.width - rect.width - 10)}px`; dom.contextMenu.style.top = `${Math.min(y, bodyRect.height - rect.height - 10)}px`; dom.contextMenu.querySelector('.context-menu-item').focus(); }
+                };
+
+                const templates = {
+                    appShell: () => `<div class="ai-app"> <div class="ai-app-main-view"> <header class="main-header"> <div class="header-content"> <div class="header-top"> <h1 id="header-title" data-loc="threads">Threads</h1> <div class="header-actions"><button id="main-more-btn" aria-label="More options"><span class="material-icons">more_vert</span></button></div> </div> <div class="search-container"><span class="material-icons">search</span><input type="text" id="search-input" placeholder="Search..."></div> </div> <nav class="filter-pills"></nav> <div class="bulk-edit-header"> <div class="header-actions"><button id="bulk-edit-close"><span class="material-icons">close</span></button><h2 id="bulk-edit-title"></h2></div> <div class="header-actions"><button id="bulk-edit-label" aria-label="Add Label"><span class="material-icons">label</span></button><button id="bulk-edit-pin" aria-label="Pin"><span class="material-icons">push_pin</span></button><button id="bulk-edit-archive" aria-label="Archive"><span class="material-icons">archive</span></button><button id="bulk-edit-delete" aria-label="Delete"><span class="material-icons">delete</span></button></div> </div> </header> <main id="main-content"> <div class="views-container"> <div id="threads-view" class="view"><ul class="thread-list"></ul></div> <div id="projects-view" class="view"></div> <div id="gallery-view" class="view"><div class="view-content-padding">${templates.emptyState('photo_library', 'Gallery', 'Coming soon.')}</div></div> <div id="discover-view" class="view"><div class="view-content-padding">${templates.emptyState('explore', 'Discover', 'Coming soon.')}</div></div> <div id="settings-view" class="view"></div> </div> </main> <button class="fab" aria-label="New Thread"><span class="material-icons">add</span></button> </div> <footer class="app-footer"> <button class="nav-item active" data-view-index="0"><span class="material-icons">chat</span><span data-loc="threads">Threads</span></button> <button class="nav-item" data-view-index="1"><span class="material-icons">folder</span><span data-loc="projects">Projects</span></button> <button class="nav-item" data-view-index="2"><span class="material-icons">photo_library</span><span>Gallery</span></button> <button class="nav-item" data-view-index="3"><span class="material-icons">explore</span><span>Discover</span></button> <button class="nav-item" data-view-index="4"><span class="material-icons">settings</span><span data-loc="settings">Settings</span></button> </footer> </div> <div id="conversation-view"></div> <div class="desktop-layout" style="display:none;"><div id="desktop-sidebar"></div><div id="desktop-conversation-view"></div></div><div id="actionsPopup"><div id="actionsBackdrop"></div><div id="actionsPanel"></div></div><div id="notificationBanner"></div>`,
+                    threadItem: (t) => `<li class="thread-item list-item ${state.ui.selectedThreadIds.includes(t.id) ? 'selected' : ''} ${(window.innerWidth >= 1024 && state.ui.activeThreadId === t.id) ? 'desktop-selected' : ''}" data-id="${t.id}">${state.ui.isSelectMode && window.innerWidth < 1024 ? `<div class="thread-checkbox"><span class="material-icons">check</span></div>` : ''}<div class="topic-icon"><span class="material-icons">${t.icon||'chat'}</span></div><div class="list-item-content"><div class="list-item-title">${t.title}</div><div class="list-item-preview">${helpers.getThreadPreview(t)}</div></div><div class="thread-meta-container"><div class="thread-meta"><span class="timestamp ${t.isUnread ? 'text-accent' : ''}">${helpers.formatTimestamp(t.timestamp)}</span><div class="thread-meta-badge">${t.isPinned ? '<span class="material-icons meta-icon">push_pin</span>' : ''}${t.isUnread ? '<div class="unread-dot"></div>' : ''}</div></div></div></li>`,
+                    labeledMessageItem: (m) => `<li class="list-item" data-thread-id="${m.threadId}" data-message-id="${m.id}"><div class="topic-icon"><span class="material-icons">label</span></div><div class="list-item-content"><div class="list-item-preview">${helpers.getMessageText(m).substring(0, 100)}...</div><div class="list-item-sub">From: ${m.threadTitle}</div></div></li>`,
+                    messageItem: (msg) => { if (msg.role === 'system') return `<div class="message-wrapper system"><div class="prose">${md(msg.content)}</div></div>`; let textContent = '', imageHTML = ''; if (Array.isArray(msg.content)) { msg.content.forEach(p => { if (p.type === 'text') textContent = p.text; if (p.type === 'image_url') imageHTML += `<img src="${p.image_url.url}" class="image-attachment">`; }); } else { textContent = msg.content; } return `<div class="message-wrapper ${msg.role}" data-message-id="${msg.id}"><div class="msg msg-${msg.role}"><div class="prose">${md(textContent)}</div>${imageHTML}</div></div>`; },
+                    conversationShell: (thread) => `<header class="conv-header"> <div class="conv-header-main"> <button class="conv-back-btn"><span class="material-icons">arrow_back</span></button> <div class="conv-header-title-wrapper"> <h2 class="truncate">${thread.title}</h2> <div class="flex items-center gap-2"> <button id="model-selector-btn"> <span>${MODEL_DETAILS[state.settings.model]?.name || state.settings.model}</span> <span class="material-icons">expand_more</span> </button> <span id="live-cost">≈$${(thread.cost || 0).toFixed(5)}</span> </div> </div> </div> <div class="header-actions"><button id="conv-more-btn" class="conv-more-btn"><span class="material-icons">more_vert</span></button></div> </header> <div class="conv-messages"></div> <div class="conv-input-wrapper"> <div id="image-previews"></div> <footer class="conv-footer"> <button id="attach-btn" class="header-actions"><span class="material-icons">add_circle_outline</span></button> <textarea id="conv-input" class="conv-input" placeholder="Message" rows="1"></textarea> <button id="mic-btn" class="header-actions"><span class="material-icons">mic</span></button> <button id="conv-send-btn" disabled><span class="material-icons">send</span></button> </footer> </div>`,
+                    desktopSidebar: () => `<header class="main-header"> <div class="header-content"> <div class="header-top"> <h1 id="header-title">Threads</h1> <div class="header-actions"><button id="desktop-new-chat-btn" aria-label="New Chat"><span class="material-icons">add</span></button><button id="desktop-more-btn" aria-label="More options"><span class="material-icons">more_vert</span></button></div> </div> <div class="search-container"><span class="material-icons">search</span><input type="text" id="desktop-search-input" placeholder="Search..."></div> </div> <nav class="filter-pills"></nav> </header><ul class="thread-list flex-grow overflow-y-auto"></ul>`,
+                    settingsView: () => `<div class="view-content-padding"> <h1 class="view-title" data-loc="settings">Settings</h1> <h2 class="section-header">Configuration</h2> <div class="settings-item-group"> <div class="settings-item" id="api-key-item"><div class="settings-item-main"><span class="material-icons">vpn_key</span><span data-loc="apiKey">API Key</span></div><span id="api-key-status">${state.apiKey ? 'Set' : 'Not Set'}</span></div> <div class="settings-item" id="manage-models-btn"><div class="settings-item-main"><span class="material-icons">model_training</span><span data-loc="manageModels">Manage Models</span></div><span class="material-icons">chevron_right</span></div> </div> <h2 class="section-header">Behavior</h2> <div class="settings-item-group"> <div class="settings-item"><div class="settings-item-main"><span class="material-icons">thermostat</span><span>Temperature: <b id="temp-label">${Number(state.settings.temperature).toFixed(2)}</b></span></div><input type="range" id="temp-slider" min="0" max="2" step="0.05" value="${state.settings.temperature}" class="w-24"></div> <div class="settings-item" id="tts-toggle"><div class="settings-item-main"><span class="material-icons">volume_up</span><span>Auto-play TTS on response</span></div><div class="toggle-switch ${state.settings.autoRead ? 'active' : ''}"></div></div> </div> <h2 class="section-header">Audio & Language</h2> <div class="settings-item-group"> <div class="settings-item"><label for="lang-select" class="w-full flex justify-between items-center"><span>Language</span><select id="lang-select" class="modal-select w-32 bg-transparent border-none">${Object.keys(L).map(o => `<option value="${o}" ${state.settings.lang === o ? 'selected' : ''}>${o.toUpperCase()}</option>`).join('')}</select></label></div> <div class="settings-item"><label for="tts-provider-select" class="w-full flex justify-between items-center"><span>TTS Provider</span><select id="tts-provider-select" class="modal-select w-32 bg-transparent border-none">${['browser','openai'].map(o => `<option value="${o}" ${state.settings.ttsProvider === o ? 'selected' : ''}>${o.charAt(0).toUpperCase() + o.slice(1)}</option>`).join('')}</select></label></div> <div class="settings-item" id="openai-voice-item" style="display:${state.settings.ttsProvider === 'openai' ? 'flex' : 'none'};"><label for="openai-voice-select" class="w-full flex justify-between items-center"><span>OpenAI Voice</span><select id="openai-voice-select" class="modal-select w-32 bg-transparent border-none">${['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'].map(o => `<option value="${o}" ${state.settings.openaiVoice === o ? 'selected' : ''}>${o.charAt(0).toUpperCase() + o.slice(1)}</option>`).join('')}</select></label></div> </div> <h2 class="section-header">Data & Labels</h2> <div class="settings-item-group"> <div class="settings-item" id="manage-labels-btn"><div class="settings-item-main"><span class="material-icons">label</span><span>Manage Labels</span></div><span class="material-icons">chevron_right</span></div> <div class="settings-item" id="import-btn"><div class="settings-item-main"><span class="material-icons">file_upload</span><span>Import from JSON</span></div></div> <div class="settings-item" id="export-all-btn"><div class="settings-item-main"><span class="material-icons">file_download</span><span>Export All Data</span></div></div> <div class="settings-item" id="view-logs-btn"><div class="settings-item-main"><span class="material-icons">plagiarism</span><span>View Logs & Errors</span></div></div><div class="settings-item" id="tos-btn"><div class="settings-item-main"><span class="material-icons">description</span><span>Terms of Service</span></div></div> </div> </div>`,
+                    projectListItem: (p) => `<div class="project-item list-item" data-project-id="${p.id}"><div class="topic-icon"><span class="material-icons">folder</span></div><div class="list-item-content"><div class="list-item-title">${p.name}</div></div></div>`,
+                    projectWorkspace: () => { const project = state.tags.find(t => t.id === state.ui.activeProjectId); if (!project) return ''; let tasks = state.tasks.filter(t=>(t.tags||[]).includes(project.id)); return `<div class="view-content-padding"> <button id="project-back-btn" style="background:none;border:none;color:var(--ai-text-primary);margin-bottom:12px;display:flex;align-items:center;gap:8px;padding:0;"> <span class="material-icons">arrow_back</span><h1 class="view-title" style="margin:0;">${project.name}</h1> </button> ${tasks.length > 0 ? `<h2 class="section-header">Tasks</h2>` + tasks.map(templates.taskItem).join('') : templates.emptyState('task_alt', 'No Tasks', `Promote messages to tasks to see them here.`)} </div>`; },
+                    taskItem: (task) => `<div class="task-item" data-thread-id="${task.threadId}" data-message-id="${task.messageId}"><div class="item-content"><div class="list-item-title">${task.content}</div><div class="item-source">From: ${state.threads.find(t=>t.id===task.threadId)?.title || '...'}</div></div></div>`,
+                    emptyState: (i,t,p) => `<div class="empty-state"><span class="material-icons">${i}</span><h3>${t}</h3><p>${p}</p></div>`,
+                    contextMenuItem: (o) => `<button class="context-menu-item ${o.destructive?'destructive':''}" data-action="${o.action}" role="menuitem"><span class="material-icons">${o.icon}</span><span>${o.text}</span></button>`,
+                };
+
+                const actions = {
+                    startNewThread: (firstMessage) => { const newId = Date.now().toString(); const newThread = { id: newId, title: firstMessage.substring(0, 40) || "New Chat", icon: 'chat', cost: 0, tags: [], messages: [{ id: `msg-${newId}-1`, role: 'user', content: firstMessage, timestamp: new Date().toISOString() }], timestamp: new Date().toISOString(), isPinned: false, isArchived: false, isUnread: false }; state.threads.unshift(newThread); dispatch('openConversation', newId); },
+                    sendMessage: async (container) => {
+                        const input = container.querySelector('#conv-input'); const previews = container.querySelector('#image-previews');
+                        const textContent = input.value.trim();
+                        if (!textContent && attachedImages.length === 0) return;
+                        if (!state.apiKey) { helpers.showModal({ title: 'API Key Required', description: 'Please set your OpenAI API key in Settings.', confirmText: 'OK' }); return; }
+                        const thread = state.threads.find(t => t.id === state.ui.activeThreadId);
+                        if (!thread) return;
+                        let userMessageContent = [];
+                        if (textContent) userMessageContent.push({ type: 'text', text: textContent });
+                        attachedImages.forEach(img => userMessageContent.push({ type: "image_url", image_url: { url: img.data } }));
+                        if (userMessageContent.length === 1 && userMessageContent[0].type === 'text') { userMessageContent = userMessageContent[0].text; }
+                        thread.messages.push({ id: `msg-${thread.id}-${Date.now()}`, role: 'user', content: userMessageContent, timestamp: new Date().toISOString() });
+                        thread.timestamp = new Date().toISOString();
+                        const oldInputVal = input.value;
+                        input.value = ''; attachedImages = []; input.dispatchEvent(new Event('input')); render.imagePreviews(previews);
+                        render.conversation(); if (window.innerWidth >= 1024) render.threads(dom.desktopThreadList);
+                        container.querySelector('.conv-messages').scrollTo({ top: 0, behavior: 'smooth' });
+                        const assistantMsgId = `msg-${thread.id}-${Date.now()}`;
+                        thread.messages.push({ id: assistantMsgId, role: 'assistant', content: '...', timestamp: new Date().toISOString() });
+                        render.conversation();
+                        const msgElement = dom.root.querySelector(`[data-message-id="${assistantMsgId}"] .prose`);
+                        const requestBody = { model: state.settings.model, messages: thread.messages.slice(0, -1).map(({id, timestamp, cost, tags, ...rest}) => rest), temperature: state.settings.temperature, stream: true };
+                        if(thread.webSearchActive) requestBody.tools = [{ type: 'web_search' }];
+                        const inT = await calculateTokens(JSON.stringify(requestBody.messages));
+                        let accumulatedContent = '', outT = 0;
+                        try {
+                            const res = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.apiKey }, body: JSON.stringify(requestBody) });
+                            if (!res.ok) { const err = await res.json(); throw new Error(err.error.message || res.statusText); }
+                            const reader = res.body.getReader(), decoder = new TextDecoder();
+                            while (true) {
+                                const { value, done } = await reader.read(); if (done) break;
+                                const chunk = decoder.decode(value, { stream: true });
+                                const lines = chunk.split('\n\n');
+                                for(const line of lines){
+                                    if (line.startsWith('data: ')) {
+                                        const data = line.substring(6); if (data.trim() === '[DONE]') continue;
+                                        try { const parsed = JSON.parse(data); const delta = parsed.choices[0].delta; if (delta.content) { accumulatedContent += delta.content; if(msgElement) msgElement.innerHTML = md(accumulatedContent + '▌'); } } catch (e) { console.warn("Stream parsing error", e); }
+                                    }
+                                }
+                            }
+                        } catch (err) { accumulatedContent = `⚠️ Error: ${err.message}`; console.error(err); } 
+                        finally {
+                            outT = await calculateTokens(accumulatedContent);
+                            const cost = costOf(state.settings.model, inT, outT);
+                            thread.cost = (thread.cost || 0) + cost;
+                            const finalMsg = thread.messages.find(m => m.id === assistantMsgId);
+                            if (finalMsg) { finalMsg.content = accumulatedContent; finalMsg.cost = cost; }
+                            if (msgElement) msgElement.innerHTML = md(accumulatedContent);
+                            if (state.settings.autoRead && accumulatedContent && !accumulatedContent.startsWith("⚠️")) helpers.toggleTTS(accumulatedContent, null);
+                            if (thread.title === "New Chat" || thread.title === oldInputVal.substring(0,40)) { thread.title = (textContent || "Image Query").substring(0,40); }
+                            dispatch('saveState'); render.run();
+                        }
+                    },
+                    regenerateResponse: () => { const thread = state.threads.find(t => t.id === state.ui.activeThreadId); if (!thread || thread.messages.length === 0) return; const lastAiMsgIndex = thread.messages.map(m => m.role).lastIndexOf('assistant'); if (lastAiMsgIndex === -1) return; thread.cost -= (thread.messages[lastAiMsgIndex].cost || 0); thread.messages.splice(lastAiMsgIndex); const container = window.innerWidth >= 1024 ? dom.desktopConversationView : dom.conversationView; actions.sendMessage(container);},
+                    openConversation: (id) => { state.ui.activeThreadId = id; const t = state.threads.find(t => t.id === id); if (t && t.isUnread) t.isUnread = false; },
+                    closeConversation: () => { state.ui.activeThreadId = null; },
+                    togglePinThread: (id) => { const t = state.threads.find(t => t.id === id); if (t) t.isPinned = !t.isPinned; },
+                    toggleArchiveThread: (id) => { const t = state.threads.find(t => t.id === id); if (t) t.isArchived = !t.isArchived; },
+                    deleteThread: (id) => { const index = state.threads.findIndex(t=>t.id===id); if(index > -1) {state.threads.splice(index, 1);} if (state.ui.activeThreadId === id) { state.ui.activeThreadId = state.threads.find(t => !t.isArchived)?.id || null; } },
+                    updateThreadTitle:({id,title})=>{const t=state.threads.find(t=>t.id===id);if(t&&title)t.title=title;},
+                    updateThreadTags:({id,tags})=>{const t=state.threads.find(t=>t.id===id);if(t)t.tags=tags;},
+                    updateMessageTags:({msgId,tags})=>{const t=state.threads.find(t=>t.id===state.ui.activeThreadId);if(t){const m=t.messages.find(m=>m.id===msgId);if(m)m.tags=tags;}},
+                    saveTag: (tagData) => { if (!tagData.name.trim()) return; if (tagData.id) { const tag = state.tags.find(t => t.id === tagData.id); if (tag) Object.assign(tag, tagData); } else { state.tags.push({ ...tagData, id: `t-${Date.now()}` }); } },
+                    deleteTag: (id) => { state.tags = state.tags.filter(t => t.id === id); state.threads.forEach(t => t.tags = (t.tags || []).filter(tid => tid !== id)); },
+                    toggleTheme:()=>{state.settings.theme=state.settings.theme==='dark'?'light':'dark';},
+                    setActiveFilter: (id) => { state.ui.activeFilterId = id; },
+                    startSelectMode: (id) => { state.ui.isSelectMode = true; state.ui.selectedThreadIds = [id]; },
+                    endSelectMode: () => { state.ui.isSelectMode = false; state.ui.selectedThreadIds = []; },
+                    toggleThreadSelection: (id) => { const index = state.ui.selectedThreadIds.indexOf(id); if (index > -1) state.ui.selectedThreadIds.splice(index, 1); else state.ui.selectedThreadIds.push(id); if (state.ui.selectedThreadIds.length === 0) actions.endSelectMode(); },
+                    applyBulkAction: (payload) => {
+                        const { action, tagIds } = payload;
+                        state.ui.selectedThreadIds.forEach(id => {
+                            if (action === 'delete') { const index = state.threads.findIndex(t => t.id === id); if (index > -1) state.threads.splice(index, 1);
+                            } else {
+                                const thread = state.threads.find(t => t.id === id);
+                                if (thread) {
+                                    if (action === 'pin') thread.isPinned = true; if (action === 'unpin') thread.isPinned = false;
+                                    if (action === 'archive') thread.isArchived = true; if (action === 'unarchive') thread.isArchived = false;
+                                    if (action === 'addTag' && tagIds) thread.tags = [...new Set([...(thread.tags || []), ...tagIds])];
+                                }
+                            }
+                        });
+                        actions.endSelectMode();
+                    },
+                    setActiveProject: (id) => { state.ui.activeProjectId = id; },
+                    navigateToMessageSource: ({ threadId, messageId }) => { state.ui.currentViewIndex=0; state.ui.activeThreadId = threadId; },
+                    savePrompt: ({name, text}) => { if (!state.prompts) state.prompts = []; state.prompts.push({name, text}); },
+                    deletePrompt: (index) => { if (state.prompts) state.prompts.splice(index, 1); },
+                    saveState: () => { saveState() }
+                };
+
+                const helpers = {
+                    showModal(config) {
+                        const id = `modal-${Date.now()}`;
+                        const modalHtml = `<div id="${id}" class="modal-overlay" role="dialog" aria-modal="true"><div class="modal-content"><h2 class="modal-title">${config.title}</h2><div class="modal-body">${config.bodyHtml || ''}</div><div class="modal-actions">${config.destructive ? `<button class="modal-btn modal-btn-destructive">${config.confirmText}</button><button class="modal-btn modal-btn-cancel">${config.cancelText || 'Cancel'}</button>` : `<button class="modal-btn modal-btn-cancel">${config.cancelText || 'Cancel'}</button><button class="modal-btn modal-btn-confirm">${config.confirmText}</button>`}</div></div></div>`;
+                        dom.modalContainer.insertAdjacentHTML('beforeend', modalHtml);
+                        const modalEl = document.getElementById(id);
+                        const closeModal = () => { modalEl.classList.remove('visible'); setTimeout(() => modalEl.remove(), 200); };
+                        modalEl.addEventListener('click', (e) => {
+                            const target = e.target;
+                            if (target === modalEl || target.classList.contains('modal-btn-cancel')) closeModal();
+                            else if (target.classList.contains('modal-btn-confirm') || target.classList.contains('modal-btn-destructive')) {
+                                if (config.onConfirm) config.onConfirm(modalEl);
+                                closeModal();
+                            }
+                        });
+                        if (config.onInit) config.onInit(modalEl);
+                        setTimeout(() => modalEl.classList.add('visible'), 10);
+                    },
+                    getThreadPreview(thread) { const lastMsg = thread.messages[thread.messages.length - 1]; if (!lastMsg) return "No messages yet..."; const prefix = lastMsg.role === 'user' ? 'You: ' : 'AI: '; let content = this.getMessageText(lastMsg); return prefix + content.replace(/<\/?[^>]+(>|$)/g, "").replace(/\n/g, " "); },
+                    getMessageText(msg) { return Array.isArray(msg.content) ? (msg.content.find(p => p.type === 'text')?.text || 'Image') : (msg.content || ''); },
+                    formatTimestamp(ts) { if (!ts) return ''; const date = new Date(ts); const now = new Date(); const diffSeconds = Math.floor((now - date) / 1000); if (diffSeconds < 60) return 'Just now'; const diffMinutes = Math.floor(diffSeconds / 60); if (diffMinutes < 60) return `${diffMinutes}m`; const diffHours = Math.floor(diffMinutes / 60); if (diffHours < 24) return `${diffHours}h`; return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); },
+                    toggleTTS: async (text, btn) => { if (currentAudioPlayer && !currentAudioPlayer.paused) { currentAudioPlayer.pause(); return; } if(btn) btn.innerHTML = `<div class="loader"></div>`; const resetUI = () => { if(btn) btn.innerHTML = `<span class="material-icons">play_arrow</span>`; currentAudioPlayer = null; }; if (state.settings.ttsProvider === 'browser') { if (speechSynthesis.speaking) speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.onend = resetUI; speechSynthesis.speak(u); } else { try { const res = await fetch('https://api.openai.com/v1/audio/speech', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.apiKey }, body: JSON.stringify({ model: 'tts-1', input: text, voice: state.settings.openaiVoice }) }); if (!res.ok) throw new Error('TTS API request failed'); const blob = await res.blob(); currentAudioPlayer = new Audio(URL.createObjectURL(blob)); currentAudioPlayer.play(); currentAudioPlayer.onended = resetUI; currentAudioPlayer.onpause = resetUI; } catch (e) { console.error(e); resetUI(); } } },
+                    toggleSpeechRecognition: (inputEl) => {
+                        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                        if (!SpeechRecognition) { alert("Speech recognition not supported."); return; }
+                        if (isRecognizing) { recognition.stop(); return; }
+                        recognition = new SpeechRecognition(); recognition.lang = 'en-US'; recognition.interimResults = true;
+                        const micBtn = inputEl.parentElement.querySelector('#mic-btn');
+                        recognition.onstart = () => { isRecognizing = true; micBtn.classList.add('mic-recording'); };
+                        recognition.onend = () => { isRecognizing = false; micBtn.classList.remove('mic-recording'); inputEl.dispatchEvent(new Event('input')); };
+                        recognition.onresult = (e) => { let t = ''; for (let i = 0; i < e.results.length; i++) { t += e.results[i][0].transcript; } inputEl.value = t; };
+                        recognition.start();
+                    },
+                };
+                
+                function dispatch(action, payload, options = {}) { if (actions[action]) { actions[action](payload); saveState(); if (!options.silent) render.run(); } }
+
+                function init() {
+                    setupLogging(); loadState();
+                    dom.root = document.querySelector('#app-root'); dom.root.innerHTML = templates.appShell();
+                    const D = { body: document.body, mobileApp: dom.root.querySelector('.ai-app'), mainView: dom.root.querySelector('.ai-app-main-view'), mainHeader: dom.root.querySelector('.main-header'), viewsContainer: dom.root.querySelector('.views-container'), navItems: dom.root.querySelectorAll('.nav-item'), threadList: dom.root.querySelector('#threads-view .thread-list'), projectsView: dom.root.querySelector('#projects-view'), settingsView: dom.root.querySelector('#settings-view'), filterPills: dom.root.querySelector('.filter-pills'), searchInput: dom.root.querySelector('#search-input'), conversationView: dom.root.querySelector('#conversation-view'), fab: dom.root.querySelector('.fab'), bulkHeader: dom.root.querySelector('.bulk-edit-header'), bulkTitle: dom.root.querySelector('#bulk-edit-title'), modalContainer: document.getElementById('modal-container'), contextMenu: document.getElementById('context-menu'), attachFileInput: document.getElementById('attachFileInput'), importFileInput: document.getElementById('importFileInput'), cameraFileInput: document.getElementById('cameraFileInput'), desktopLayout: dom.root.querySelector('.desktop-layout'), desktopSidebar: dom.root.querySelector('#desktop-sidebar'), desktopConversationView: dom.root.querySelector('#desktop-conversation-view'), actionsPopup: dom.root.querySelector('#actionsPopup'), notificationBanner: dom.root.querySelector('#notificationBanner') };
+                    Object.assign(dom, D);
+
+                    dom.desktopSidebar.innerHTML = templates.desktopSidebar();
+                    Object.assign(dom, { desktopThreadList: dom.desktopSidebar.querySelector('.thread-list'), desktopFilterPills: dom.desktopSidebar.querySelector('.filter-pills'), desktopSearchInput: dom.desktopSidebar.querySelector('#desktop-search-input'),});
+                    
+                    render.run();
+                    window.addEventListener('resize', render.run);
+                    
+                    let longPressTimer = null; const startLongPress = (e, cb) => { longPressTimer = setTimeout(() => { if(e.type === 'touchstart') e.preventDefault(); cb(); }, 500); }; const cancelLongPress = () => clearTimeout(longPressTimer);
+                    ['mousedown', 'touchstart'].forEach(evt => { dom.root.addEventListener(evt, e => { const i = e.target.closest('.thread-item'); if(i) startLongPress(e, () => { if (!state.ui.isSelectMode) dispatch('startSelectMode', i.dataset.id); }); const m = e.target.closest('.message-wrapper'); if(m) startLongPress(e, () => helpers.handleContextMenu(e, m)); }, evt==='touchstart'?{passive:false}:false); });
+                    ['mouseup', 'mouseleave', 'touchend', 'touchmove'].forEach(evt => { document.addEventListener(evt, cancelLongPress); });
+
+                    dom.root.addEventListener('click', e => {
+                        cancelLongPress();
+                        const threadItem = e.target.closest('.thread-item'); if (threadItem) { if (state.ui.isSelectMode && window.innerWidth < 1024) dispatch('toggleThreadSelection', threadItem.dataset.id); else dispatch('openConversation', threadItem.dataset.id); }
+                        const navItem = e.target.closest('.nav-item'); if (navItem) { state.ui.currentViewIndex = parseInt(navItem.dataset.viewIndex, 10); render.run(); }
+                        const fab = e.target.closest('.fab'); if (fab) { helpers.showModal({title:'New Conversation', bodyHtml:`<textarea class="modal-input" placeholder="Enter your first message..." rows="4"></textarea>`, confirmText:'Start', onConfirm: m => { const text = m.querySelector('textarea').value; if (text) dispatch('startNewThread', text); }}); }
+                        const pill = e.target.closest('.pill'); if (pill) { dispatch('setActiveFilter', pill.dataset.filterId); }
+                        const convAction = e.target.closest('#conversation-view button, #desktop-conversation-view button'); if(convAction) { if(convAction.matches('.conv-back-btn')) dispatch('closeConversation'); else if(convAction.id === 'model-selector-btn') helpers.showModelSelector(); else if(convAction.matches('#conv-more-btn')) helpers.handleContextMenu(e, convAction); else if(convAction.id === 'attach-btn') helpers.showActionsPopup(convAction.closest('.conv-input-wrapper')); else if(convAction.id === 'mic-btn') helpers.toggleSpeechRecognition(convAction.parentElement.querySelector('textarea')); else if(convAction.id === 'conv-send-btn') actions.sendMessage(convAction.closest('#conversation-view, #desktop-conversation-view')); }
+                        const bulkAction = e.target.closest('.bulk-edit-header button'); if(bulkAction) { if(bulkAction.id === 'bulk-edit-close') dispatch('endSelectMode'); else if (bulkAction.id === 'bulk-edit-pin') dispatch('applyBulkAction', {action:'pin'}); else if(bulkAction.id === 'bulk-edit-archive') dispatch('applyBulkAction', {action:'archive'}); else if(bulkAction.id === 'bulk-edit-delete') helpers.showModal({title: `Delete ${state.ui.selectedThreadIds.length} threads?`, destructive: true, confirmText:'Delete', onConfirm: () => dispatch('applyBulkAction', {action:'delete'})}); else if(bulkAction.id === 'bulk-edit-label') helpers.showTagModal(state.ui.selectedThreadIds); }
+                        const settingsAction = e.target.closest('#settings-view .settings-item'); if(settingsAction) { if (settingsAction.id === 'api-key-item') helpers.showModal({ title: 'API Key', confirmText: 'Save', bodyHtml: `<input type="password" class="modal-input" placeholder="sk-..." value="${state.apiKey}">`, onConfirm: m => { state.apiKey = m.querySelector('input').value; saveState(); render.settings(); helpers.showBanner('API Key Saved', 'success'); } }); else if (settingsAction.id === 'manage-models-btn') helpers.showModelManager(); else if (settingsAction.id === 'tts-toggle') { state.settings.autoRead = !state.settings.autoRead; dispatch('saveState'); render.settings(); } else if (settingsAction.id === 'manage-labels-btn') helpers.showLabelManager(); else if (settingsAction.id === 'import-btn') dom.importFileInput.click(); else if (settingsAction.id === 'export-all-btn') { const d = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state)); const a = document.createElement('a'); a.href = d; a.download = `ai_hub_export_${Date.now()}.json`; a.click(); } else if (settingsAction.id === 'view-logs-btn') helpers.showLogs(); else if (settingsAction.id === 'tos-btn') helpers.showTOS(); }
+                        const projectAction = e.target.closest('#projects-view .project-item, #projects-view #project-back-btn, #projects-view .note-item, #projects-view .task-item'); if(projectAction) { if(projectAction.matches('.project-item')) { dispatch('setActiveProject', projectAction.dataset.projectId); return; } if (projectAction.id === 'project-back-btn') { dispatch('setActiveProject', null); return; } if(projectAction.matches('.note-item') || projectAction.matches('.task-item')) { dispatch('navigateToMessageSource', { threadId: projectAction.dataset.threadId, messageId: projectAction.dataset.messageId }); } }
+                        const mainMore = e.target.closest('#main-more-btn, #desktop-more-btn'); if(mainMore) helpers.handleContextMenu(e, mainMore);
+                        const newChatDesktop = e.target.closest('#desktop-new-chat-btn'); if(newChatDesktop) dispatch('startNewThread', '');
+                        if (e.target.closest('.context-menu-item')) helpers.handleContextAction(e.target.closest('.context-menu-item').dataset.action);
+                        if (dom.contextMenu.style.display === 'block' && !e.target.closest('.context-menu, .thread-item, .message-wrapper, #conv-more-btn, #main-more-btn, #desktop-more-btn')) { dom.contextMenu.style.display = 'none'; }
+                        if (e.target.closest('#view-mode-toggle')) { state.ui.mainViewMode = state.ui.mainViewMode === 'threads' ? 'labeledMessages' : 'threads'; dispatch('saveState'); }
+                    });
+
+                    dom.root.addEventListener('input', e => { const target = e.target; if (target.matches('#search-input, #desktop-search-input')) { state.ui.searchQuery = target.value; render.threads(window.innerWidth >= 1024 ? dom.desktopThreadList : dom.threadList); } else if (target.matches('#conv-input')) { target.style.height = 'auto'; target.style.height = `${Math.min(target.scrollHeight, 120)}px`; const hasContent = target.value.trim() !== '' || attachedImages.length > 0; const footer = target.parentElement; footer.querySelector('#conv-send-btn').disabled = !hasContent; footer.querySelector('#mic-btn').style.display = hasContent ? 'none' : 'flex'; footer.querySelector('#conv-send-btn').style.display = hasContent ? 'flex' : 'none'; } });
+                    dom.root.addEventListener('change', e => { const target = e.target; if (target.matches('#temp-slider')) { state.settings.temperature = +target.value; target.parentElement.querySelector('#temp-label').textContent = (+target.value).toFixed(2); dispatch('saveState'); } else if (target.id === 'tts-provider-select') { state.settings.ttsProvider = target.value; dispatch('saveState'); render.settings(); } else if (target.id === 'openai-voice-select') { state.settings.openaiVoice = target.value; dispatch('saveState'); } else if (target.id === 'lang-select') { state.settings.lang = target.value; dispatch('saveState'); render.run(); }});
+                    
+                    dom.importFileInput.onchange = (e) => { const f=e.target.files[0]; if (f) { const r=new FileReader(); r.onload = (re) => { try { const i=JSON.parse(re.target.result); if(i.threads && i.settings){Object.assign(state, defaultState, i);state.ui.activeThreadId=null;dispatch('saveState');location.reload();} else throw new Error("Invalid format");} catch (err){alert('Import failed: '+err.message);}}; r.readAsText(f);}};
+                    
+                    if (window.location.protocol !== 'file:') { try { const swJS = `const CACHE_NAME='ai-hub-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE_NAME).then(c=>c.add('/'))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`; const swBlob = new Blob([swJS], { type: 'text/javascript' }); navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(e => console.error('SW registration failed:', e)); } catch(e){} try { window.tiktoken.init((imports) => WebAssembly.instantiate(new URL("https://cdn.jsdelivr.net/npm/@dqbd/tiktoken@1.0.14/lite/tiktoken_bg.wasm", import.meta.url), imports)).then(() => { fetch("https://cdn.jsdelivr.net/npm/@dqbd/tiktoken@1.0.14/encoders/cl100k_base.json").then(r=>r.json()).then(d=> {tokenizer = new window.tiktoken.Tiktoken(d.bpe_ranks,{"<|endoftext|>":100257}, "'(?i:[sdmt]|ll|ve|re)|'t|'s|'m|'d| ?\\p{L}+| ?\\p{N}+| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+"); console.log("Tokenizer loaded.");})}); } catch(e) { console.error("Tokenizer failed to load.", e); } }
+                }
+                
+                helpers.handleContextMenu = (e, target) => { const threadId = target.closest('.thread-item')?.dataset.id; const messageId = target.closest('.message-wrapper')?.dataset.messageId; const isConvMore = target.closest('#conv-more-btn'); const isMainMore = target.closest('#main-more-btn, #desktop-more-btn'); const x = e.clientX ?? e.touches[0].clientX; const y = e.clientY ?? e.touches[0].clientY; let options = []; if (threadId) { const t = state.threads.find(t => t.id === threadId); if (!t) return; dom.contextMenu.dataset.contextId = threadId; dom.contextMenu.dataset.contextType = 'thread'; options = [{action: 'addTag', text: 'Add Label...', icon:'label'}, {action: t.isPinned?'unpin':'pin', text: t.isPinned?'Unpin':'Pin', icon:'push_pin'}, {action: t.isArchived?'unarchive':'archive', text: t.isArchived?'Unarchive':'Archive', icon:'archive'}, {action:'editTitle', text:'Edit Title', icon:'edit'}, {action:'delete', text:'Delete', icon:'delete', destructive:true}]; } else if (messageId) { dom.contextMenu.dataset.contextId = messageId; dom.contextMenu.dataset.contextType = 'message'; const msg = state.threads.find(t=>t.id===state.ui.activeThreadId)?.messages.find(m=>m.id===messageId); options = [{action: 'copy', text: 'Copy Text', icon: 'content_copy'}, {action:'addTag', text:'Add Label...', icon:'label'}, {action: 'promoteTask', text: 'Promote to Task', icon: 'task_alt'}, {action: 'tts', text: 'Play Audio', icon: 'play_arrow'}]; if(msg?.role === 'user') options.splice(3, 0, {action: 'edit', text: 'Edit & Resubmit', icon: 'edit'}); } else if (isConvMore) { dom.contextMenu.dataset.contextId = state.ui.activeThreadId; dom.contextMenu.dataset.contextType = 'conversation'; options = [{action: 'regenerate', text: 'Regenerate Response', icon: 'refresh'}, {action: 'exportPdf', text: 'Export to PDF', icon: 'picture_as_pdf'}]; } else if (isMainMore) { dom.contextMenu.dataset.contextType = 'main'; options = [{action: 'promptLibrary', text: 'Prompt Library', icon: 'library_books' }, {action: 'manageLabels', text: 'Manage Labels', icon: 'label'}]; } render.contextMenu(x, y, options); };
+                helpers.handleContextAction = (action) => {
+                    const { contextId, contextType } = dom.contextMenu.dataset;
+                    dom.contextMenu.style.display = 'none';
+                    if (contextType === 'thread') { const t = state.threads.find(t=>t.id===contextId); if(!t) return; if (action === 'delete') helpers.showModal({ title: `Delete "${t.title}"?`, destructive: true, confirmText: 'Delete', onConfirm: () => dispatch('deleteThread', contextId) }); else if (action === 'editTitle') helpers.showModal({ title: 'Edit Title', bodyHtml: `<input type="text" class="modal-input" value="${t.title}">`, confirmText: 'Save', onConfirm: m => dispatch('updateThreadTitle', { id: contextId, title: m.querySelector('.modal-input').value }) }); else if (action === 'pin') dispatch('togglePinThread', contextId); else if (action === 'unpin') dispatch('togglePinThread', contextId); else if (action === 'archive') dispatch('toggleArchiveThread', contextId); else if (action === 'unarchive') dispatch('toggleArchiveThread', contextId); else if (action === 'addTag') helpers.showTagModal([contextId]); } 
+                    else if (contextType === 'message') { const thread = state.threads.find(t=>t.id===state.ui.activeThreadId); const msg = thread?.messages.find(m=>m.id===contextId); if (!msg) return; if (action === 'copy') navigator.clipboard.writeText(helpers.getMessageText(msg)); else if (action === 'tts') helpers.toggleTTS(helpers.getMessageText(msg), dom.contextMenu.querySelector('[data-action="tts"]')); else if (action === 'addTag') helpers.showTagModal([contextId], true); else if (action === 'promoteTask') { const projects = state.tags.filter(t=>t.isProject); if (projects.length === 0) { alert("Create a Project in 'Manage Labels' first!"); return; } const body = `<div class="space-y-2">${projects.map(p=>`<button data-project-id="${p.id}" class="w-full text-left p-2 rounded-lg hover:bg-[var(--hover-overlay)]">${p.name}</button>`).join('')}</div>`; helpers.showModal({title: 'Add Task to Project', bodyHtml: body, confirmText: 'Cancel', onInit: m => m.addEventListener('click', e => { const btn = e.target.closest('button[data-project-id]'); if(btn) { state.tasks.push({id: `task-${Date.now()}`, content: helpers.getMessageText(msg), threadId: thread.id, messageId: msg.id, tags: [btn.dataset.projectId]}); dispatch('saveState'); m.querySelector('.modal-btn-confirm').click(); }})});} else if (action === 'edit') { const msgIndex = thread.messages.findIndex(m=>m.id===contextId); helpers.showEditUI(thread, msgIndex); }} 
+                    else if (contextType === 'conversation') { if (action === 'regenerate') dispatch('regenerateResponse'); else if (action === 'exportPdf') { const t=state.threads.find(th=>th.id===contextId); if(!t) return; helpers.showModal({ title: "Generating PDF...", bodyHtml: `<div class="flex justify-center items-center p-4"><div class="loader"></div></div>`, confirmText: "OK"}); setTimeout(async () => { try { const canvas = await html2canvas(document.querySelector('.visible .conv-messages, #desktop-conversation-view .conv-messages'), { scale: 2, useCORS: true, backgroundColor: state.settings.theme === 'dark' ? '#121212' : '#F0F2F5' }); const imgData = canvas.toDataURL('image/png'); const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' }); const pdfWidth = pdf.internal.pageSize.getWidth(); const canvasRatio = canvas.height / canvas.width; let imgHeight = pdfWidth * canvasRatio; let heightLeft = imgHeight; let position = 0; pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight); heightLeft -= pdf.internal.pageSize.getHeight(); while(heightLeft > 0) { position -= pdf.internal.pageSize.getHeight(); pdf.addPage(); pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight); heightLeft -= pdf.internal.pageSize.getHeight(); } pdf.save(`${t.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.pdf`); } catch(e) { console.error(e); } finally { document.querySelector('.modal-overlay')?.remove(); } }, 100); } } 
+                    else if (contextType === 'main') { if (action === 'promptLibrary') helpers.showPromptLibrary(); else if (action === 'manageLabels') helpers.showLabelManager(); }
+                };
+                helpers.showModelSelector = () => { const body = `<div class="space-y-2">${Object.entries(MODEL_DETAILS).filter(([id])=>(state.settings.enabledModels||[]).includes(id)).map(([id,d])=>`<button data-model-id="${id}" class="w-full text-left p-3 rounded-lg ${state.settings.model===id ? 'bg-[var(--ai-accent)] text-white' : 'hover:bg-[var(--hover-overlay)]'}"><div class="font-bold">${d.name}</div><div class="text-xs">${d.capabilities.join(', ')}</div></button>`).join('')}</div>`; helpers.showModal({ title: 'Switch Model', bodyHtml: body, confirmText: 'Done', onInit: m => { m.addEventListener('click', e=>{const btn=e.target.closest('button[data-model-id]');if(btn){state.settings.model=btn.dataset.modelId;m.querySelector('.modal-btn-confirm').click();dispatch('saveState');render.conversation();}})} });};
+                helpers.showModelManager = () => { const body=`<div class="space-y-2">${Object.entries(MODEL_DETAILS).map(([id,d])=>`<label class="flex items-center gap-4 p-2 rounded-lg hover:bg-[var(--hover-overlay)]"><input type="checkbox" data-model-id="${id}" ${(state.settings.enabledModels||[]).includes(id)?'checked':''}><span>${d.name}</span></label>`).join('')}</div>`; helpers.showModal({title:"Manage Models",bodyHtml:body,confirmText:"Save",onConfirm:m=>{const enabled=[]; m.querySelectorAll('input:checked').forEach(i=>enabled.push(i.dataset.modelId)); state.settings.enabledModels=enabled; if(!enabled.includes(state.settings.model))state.settings.model=enabled[0]||''; dispatch('saveState');}});};
+                helpers.showLabelManager = () => { const renderList = () => state.tags.map(t => `<div class="label-manager-item" data-id="${t.id}"><div class="label-manager-main"><span style="flex-grow:1;">${t.name}</span><label class="project-toggle-label"><input type="checkbox" class="project-toggle" ${t.isProject ? 'checked' : ''}>Project</label></div><div class="label-manager-actions"><button class="delete-label-btn" aria-label="Delete Label"><span class="material-icons" style="font-size:18px;">delete</span></button></div></div>`).join('') + `<div class="label-modal-new mt-4"><input class="modal-input" placeholder="New label..."><button class="modal-btn-confirm">Add</button></div>`; helpers.showModal({ title: 'Manage Labels', confirmText: 'Done', bodyHtml: `<div id="label-manager-list">${renderList()}</div>`, onInit: (m) => { const listEl = m.querySelector('#label-manager-list'); listEl.addEventListener('click', ev => { const id = ev.target.closest('.label-manager-item')?.dataset.id; if(ev.target.matches('.modal-btn-confirm')) { const input = listEl.querySelector('.modal-input'); if(input.value) { dispatch('saveTag', {name: input.value, isProject: false}, {silent:true}); listEl.innerHTML = renderList(); } return; } if (!id) return; const tag = state.tags.find(t => t.id === id); if (ev.target.matches('.project-toggle')) dispatch('saveTag', { ...tag, isProject: ev.target.checked }, { silent: true }); else if (ev.target.closest('.delete-label-btn')) helpers.showModal({title:`Delete "${tag.name}"?`,destructive:true,confirmText:'Delete',onConfirm:() => { dispatch('deleteTag', id, {silent:true}); listEl.innerHTML = renderList(); }}); }); }}); };
+                helpers.showTagModal = (ids, isMessage = false) => { const items = isMessage ? [state.threads.find(t=>t.id===state.ui.activeThreadId).messages.find(m=>m.id===ids[0])] : ids.map(id => state.threads.find(t=>t.id===id)); const commonTags = items.reduce((acc, item) => acc.filter(tagId => (item.tags||[]).includes(tagId)), items[0].tags || []); const getBody = (currentTags) => `<div class="label-modal-list">${state.tags.map(t=>`<div class="label-modal-pill ${(currentTags||[]).includes(t.id)?'selected':''}" data-tag-id="${t.id}">${t.name}</div>`).join('')}</div>`; helpers.showModal({ title: `Add Labels to ${ids.length} item(s)`, bodyHtml: getBody(commonTags), confirmText: 'Apply', onConfirm: m => { const tagIds = Array.from(m.querySelectorAll('.selected')).map(el=>el.dataset.tagId); if (isMessage) { dispatch('updateMessageTags', {msgId: ids[0], tags: tagIds}); } else { ids.forEach(id => dispatch('updateThreadTags', {id, tags: tagIds}, {silent: true})); render.run(); } }, onInit: m => m.querySelector('.label-modal-list').onclick = e => e.target.closest('.label-modal-pill')?.classList.toggle('selected') }); };
+                helpers.showPromptLibrary = () => { const renderList = () => (state.prompts || []).map((p, i) => `<div class="flex items-center justify-between p-2 rounded-lg hover:bg-[var(--hover-overlay)]"><span>${p.name}</span><div class="flex gap-2"><button class="use-prompt modal-btn modal-btn-confirm !p-2 !text-xs" data-index="${i}">Use</button><button class="del-prompt modal-btn modal-btn-destructive !p-2 !text-xs" data-index="${i}">Del</button></div></div>`).join(''); helpers.showModal({ title: 'Prompt Library', confirmText: 'Done', bodyHtml: `<div id="prompt-list">${renderList()}</div><div class="mt-4 border-t pt-4"><input id="new-prompt-name" class="modal-input" placeholder="Prompt Name"><button id="save-prompt-btn" class="modal-btn modal-btn-confirm w-full">Save Current Input</button></div>`, onInit: m => { m.addEventListener('click', e => { const list = m.querySelector('#prompt-list'); const input = (window.innerWidth >= 1024 ? dom.desktopConversationView : dom.conversationView).querySelector('#conv-input'); if (e.target.matches('.use-prompt')) { input.value = state.prompts[e.target.dataset.index].text; input.dispatchEvent(new Event('input')); m.querySelector('.modal-btn-confirm').click(); } else if (e.target.matches('.del-prompt')) { dispatch('deletePrompt', e.target.dataset.index, {silent:true}); list.innerHTML = renderList(); } else if (e.target.matches('#save-prompt-btn')) { const name = m.querySelector('#new-prompt-name').value; const text = input.value; if(name&&text){ dispatch('savePrompt', {name,text},{silent:true}); list.innerHTML = renderList(); m.querySelector('#new-prompt-name').value=''; } } }); }}); };
+                helpers.showLogs = () => { const body = `<div class="bg-black/50 p-2 rounded font-mono text-xs max-h-64 overflow-y-auto">${logStore.map(l=>`<div class="${l.type==='error'?'text-red-400':(l.type==='warn'?'text-yellow-400':'')}"><b>[${l.ts.toLocaleTimeString()}]</b> ${l.message}</div>`).reverse().join('')}</div>`; helpers.showModal({title: 'Logs & Errors', confirmText: 'Close', bodyHtml: body}); };
+                helpers.showTOS = () => { helpers.showModal({ title: 'Terms of Service', confirmText: 'Close', bodyHtml: `<p class="text-sm text-[var(--ai-text-secondary)]">This is a demo application. Use at your own risk. Your data is stored locally in your browser.</p>`}); };
+                helpers.showEditUI = (thread, msgIndex) => { const msg = thread.messages[msgIndex]; const text = helpers.getMessageText(msg); helpers.showModal({ title: 'Edit & Resubmit', confirmText: 'Save & Submit', bodyHtml: `<textarea class="modal-input" rows="5">${text}</textarea>`, onConfirm: async (m) => { const newText = m.querySelector('textarea').value; thread.messages.splice(msgIndex); thread.messages.push({ ...msg, content: newText }); render.run(); await actions.sendMessage(window.innerWidth >= 1024 ? dom.desktopConversationView : dom.conversationView); }}); };
+                helpers.showActionsPopup = (container) => { dom.actionsPopup.classList.add('open'); dom.actionsPopup.querySelector('#actionsPanel').innerHTML = `<div class="grid grid-cols-3 gap-3 text-center mb-4"><button id="actionCamera"><span class="material-icons">photo_camera</span></button><button id="actionPhotos"><span class="material-icons">photo_library</span></button><button id="actionFiles"><span class="material-icons">folder</span></button></div><hr class="border-gray-700 my-3"><button id="actionWebSearch" class="flex items-center w-full gap-2 p-2 rounded-lg hover:bg-[var(--hover-overlay)]"><span class="material-icons">travel_explore</span><span>Web Search</span></button>`; };
+                
+                init();
+            })();
+        });
+    </script>
+</body>
+</html>
